@@ -2,6 +2,14 @@ import DocumentIndex from '#src/lib/search/documentIndex.js';
 import search from '#src/lib/search/documentSearch.js';
 import { deserializeTokens } from '#src/lib/search/utils.js';
 
+const escapeHTML = str =>
+  String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+
 const omnisearch = {
   openTrigger: document.querySelector('[data-open-modal="omnisearch"]'),
   dialog: document.querySelector('[data-modal="omnisearch"]'),
@@ -11,27 +19,39 @@ const omnisearch = {
   resultsSection: document.querySelector('output[for="omnisearch"]'),
   searchIndex: {},
   searchIndexInitialized: false,
+  searchIndexPromise: null,
+  latestQuery: '',
   eventListener: null,
   focusedResult: -1,
   isOpen: false,
   prepare() {
-    if (!this.searchIndexInitialized)
-      fetch('/search-data.json')
-        .then(data => data.json())
-        .then(json => {
-          const documents = json.searchIndex.map(
-            ({ url, searchTokens, ...data }) => ({
-              id: url,
-              content: deserializeTokens(searchTokens),
-              rawContent: searchTokens,
-              url,
-              ...data,
-            })
-          );
-          this.searchIndex = new DocumentIndex(documents);
-          this.searchDocuments = search(this.searchIndex);
-          this.searchIndexInitialized = true;
-        });
+    if (this.searchIndexInitialized || this.searchIndexPromise)
+      return this.searchIndexPromise;
+    this.searchIndexPromise = fetch('/search-data.json')
+      .then(data => {
+        if (!data.ok) throw new Error(`HTTP ${data.status}`);
+        return data.json();
+      })
+      .then(json => {
+        const documents = json.searchIndex.map(
+          ({ url, searchTokens, ...data }) => ({
+            id: url,
+            content: deserializeTokens(searchTokens),
+            rawContent: searchTokens,
+            url,
+            ...data,
+          })
+        );
+        this.searchIndex = new DocumentIndex(documents);
+        this.searchDocuments = search(this.searchIndex);
+        this.searchIndexInitialized = true;
+        if (this.latestQuery) this.search(this.latestQuery);
+      })
+      .catch(() => {
+        this.searchIndexPromise = null;
+        if (this.isOpen) this.displayErrorState();
+      });
+    return this.searchIndexPromise;
   },
   open() {
     this.prepare();
@@ -61,6 +81,7 @@ const omnisearch = {
     }, 185);
   },
   search(query) {
+    this.latestQuery = query;
     if (!this.searchIndexInitialized || !this.isOpen) return;
     this.playSearchIconAnimation();
     const results = this.searchByKeyphrase(query);
@@ -85,6 +106,9 @@ const omnisearch = {
   displayNotFoundState(query) {
     this.resultsSection.innerHTML = this.createNotFoundStateHTML(query);
   },
+  displayErrorState() {
+    this.resultsSection.innerHTML = this.createErrorStateHTML();
+  },
   createResultsHTML(title, results) {
     return `
       <h2>${title}</h2>
@@ -94,9 +118,9 @@ const omnisearch = {
   createResultHTML(result) {
     return `
       <li>
-        <a href=${result.url}>
-          ${result.title}
-          <small>${result.tag}</small>
+        <a href="${escapeHTML(result.url)}">
+          ${escapeHTML(result.title)}
+          <small>${escapeHTML(result.tag)}</small>
         </a>
       </li>
       `;
@@ -104,13 +128,11 @@ const omnisearch = {
   createEmptyStateHTML() {
     return `<p>Start typing a keyphrase to see matching articles.</p>`;
   },
+  createErrorStateHTML() {
+    return `<p>Search is unavailable right now. Close and reopen search to try again.</p>`;
+  },
   createNotFoundStateHTML(query) {
-    const escapedQuery = query
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#039;');
+    const escapedQuery = escapeHTML(query);
     return `<p>
       We couldn't find any results for the keyphrase <strong>${escapedQuery}</strong>.
     </p>`;
@@ -196,6 +218,6 @@ omnisearch.dialog.addEventListener('click', e => {
   if (!e.target.closest('search')) omnisearch.close();
 });
 
-omnisearch.searchBox.addEventListener('keyup', e => {
+omnisearch.searchBox.addEventListener('input', e => {
   omnisearch.search(e.target.value);
 });
