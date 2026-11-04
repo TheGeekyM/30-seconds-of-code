@@ -1,17 +1,18 @@
 #!/bin/bash
 deploy_branch() {
-  curl -X POST -d {} \
+  curl -fsS -X POST -d {} \
     --data-urlencode "trigger_title=[`date +%Y.%m.%d_%H:%M`] Deployment: ${DEPLOY_TRIGGER}" \
     --data-urlencode "trigger_branch=${1}" \
-    ${DEPLOY_URL} > /dev/null 2>&1
+    ${DEPLOY_URL} > /dev/null
 }
 
 deploy_production() {
   echo "Deploying from 'master' branch..."
   if deploy_branch "master" ; then
-    echo "Deployment successfull"
+    echo "Deployment successful"
   else
     echo "Deployment failed"
+    return 1
   fi
 }
 
