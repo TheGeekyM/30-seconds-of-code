@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { exec } from 'child_process';
+import { spawn } from 'child_process';
 import ContentUtils from '#src/lib/contentUtils/contentUtils.js';
 import Loader from '#src/lib/loader.js';
 
@@ -95,8 +95,43 @@ if (args.length === 0 || args[0] === 'help') {
   const fastHighlight = args[1] === '--fast-highlight';
   if (!fastHighlight)
     console.log('Watch mode started with fast highlighting disabled.');
-  const command = `bin/prepare dev${fastHighlight ? ' --fast-highlight' : ''}`;
-  ContentUtils.watchContent(() => exec(command));
+  const devArgs = ['dev', ...(fastHighlight ? ['--fast-highlight'] : [])];
+  // Only allow one rebuild at a time. Changes detected while a rebuild is
+  // running are coalesced into a single pending rebuild.
+  let running = false;
+  let pending = false;
+  const rebuild = () => {
+    if (running) {
+      pending = true;
+      return;
+    }
+    running = true;
+    const child = spawn('bin/prepare', devArgs, { stdio: 'inherit' });
+    let finished = false;
+    const done = () => {
+      if (finished) return;
+      finished = true;
+      running = false;
+      if (pending) {
+        pending = false;
+        rebuild();
+      }
+    };
+    child.on('error', error => {
+      console.error(`Content preparation failed to start: ${error.message}`);
+      done();
+    });
+    child.on('exit', (code, signal) => {
+      if (code !== 0)
+        console.error(
+          `Content preparation exited with ${
+            signal ? `signal ${signal}` : `code ${code}`
+          }.`
+        );
+      done();
+    });
+  };
+  ContentUtils.watchContent(rebuild);
 } else if (args[0] === 'content') {
   ContentUtils.prepareContent();
 } else if (args[0] === 'assets') {
