@@ -14,7 +14,7 @@ export const extractSnippetData = async (snippetGlob, languageData) => {
         filePath,
         title,
         shortTitle = title,
-        tags,
+        tags = [],
         language: languageKey,
         body: fullText,
         excerpt: shortDescription,
@@ -25,7 +25,16 @@ export const extractSnippetData = async (snippetGlob, languageData) => {
         journeyId = null,
       } = snippet;
 
+      if (!title) console.warn(`Snippet ${filePath} is missing a title`);
+      if (!shortDescription)
+        console.warn(`Snippet ${filePath} is missing an excerpt`);
+
       const language = languageData.get(languageKey);
+      if (languageKey && !language)
+        console.warn(
+          `Language ${languageKey} not found for snippet ${filePath}`
+        );
+
       const id = filePath.replace(snippetPrefix, '').slice(0, -3);
 
       const [descriptionHtml, fullDescriptionHtml] = await Promise.all([
